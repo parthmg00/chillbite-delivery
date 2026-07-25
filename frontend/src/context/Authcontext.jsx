@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -44,6 +45,59 @@ export function AuthProvider({ children }) {
     }
   }, [token]);
 
+  const updateUser = useCallback((updatedValues) => {
+    setUser((currentUser) => {
+      if (!currentUser) {
+        return currentUser;
+      }
+
+      return {
+        ...currentUser,
+        ...updatedValues,
+      };
+    });
+  }, []);
+
+  const refreshProfile = useCallback(async () => {
+    if (!token) {
+      return {
+        success: false,
+        message: "User logged in nahi hai.",
+      };
+    }
+
+    try {
+      const response = await axiosInstance.get("/auth/profile");
+
+      const responseData = response.data;
+
+      const refreshedUser =
+        responseData?.user ||
+        responseData?.data?.user ||
+        responseData?.data ||
+        null;
+
+      if (refreshedUser) {
+        setUser(refreshedUser);
+      }
+
+      return {
+        success: true,
+        user: refreshedUser,
+        data: responseData,
+      };
+    } catch (error) {
+      console.error("Profile refresh error:", error);
+
+      return {
+        success: false,
+        message:
+          error.response?.data?.message ||
+          "Profile refresh nahi hua.",
+      };
+    }
+  }, [token]);
+
   const register = async (formData) => {
     try {
       setAuthLoading(true);
@@ -67,9 +121,14 @@ export function AuthProvider({ children }) {
         responseData?.data ||
         null;
 
-      if (receivedToken) {
-        setToken(receivedToken);
+      if (!receivedToken) {
+        return {
+          success: false,
+          message: "Registration response me token nahi mila.",
+        };
       }
+
+      setToken(receivedToken);
 
       if (receivedUser) {
         setUser(receivedUser);
@@ -143,13 +202,13 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const logout = () => {
+  const logout = useCallback(() => {
     setUser(null);
     setToken("");
 
     localStorage.removeItem("chillbite-user");
     localStorage.removeItem("chillbite-token");
-  };
+  }, []);
 
   const value = useMemo(
     () => ({
@@ -160,8 +219,17 @@ export function AuthProvider({ children }) {
       register,
       login,
       logout,
+      updateUser,
+      refreshProfile,
     }),
-    [user, token, authLoading]
+    [
+      user,
+      token,
+      authLoading,
+      logout,
+      updateUser,
+      refreshProfile,
+    ]
   );
 
   return (

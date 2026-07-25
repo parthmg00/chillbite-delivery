@@ -17,6 +17,7 @@ const router = express.Router();
 
 router.post("/", protect, createOrder);
 
+// Hamesha /:id se pehle
 router.get("/my-orders", protect, getMyOrders);
 
 router.get("/:id", protect, getOrderById);

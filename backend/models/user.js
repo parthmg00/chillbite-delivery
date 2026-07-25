@@ -19,7 +19,7 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       match: [
         /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-        "Please enter a valid email",
+        "Please enter a valid email address",
       ],
     },
 
@@ -50,9 +50,13 @@ const userSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  },
+  }
 );
 
+/*
+  Password ko database me save hone se pehle hash karega.
+  Password update na hua ho to dobara hash nahi karega.
+*/
 userSchema.pre("save", async function () {
   if (!this.isModified("password")) {
     return;
@@ -61,6 +65,9 @@ userSchema.pre("save", async function () {
   this.password = await bcrypt.hash(this.password, 12);
 });
 
+/*
+  Login ke time entered password ko hashed password ke saath compare karega.
+*/
 userSchema.methods.comparePassword = async function (enteredPassword) {
   return bcrypt.compare(enteredPassword, this.password);
 };

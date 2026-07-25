@@ -7,6 +7,7 @@ const formatUserResponse = (user) => ({
   email: user.email,
   phone: user.phone,
   role: user.role,
+  walletBalance: Number(user.walletBalance || 0),
 });
 
 export const registerUser = async (req, res) => {
