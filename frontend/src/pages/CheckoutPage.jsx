@@ -4,12 +4,21 @@ import { useNavigate } from "react-router-dom";
 import axiosInstance from "../api/axiosInstance.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useCart } from "../context/CartContext.jsx";
+import LocationMap from "../components/LocationMap.jsx";
 
 function CheckoutPage() {
   const navigate = useNavigate();
 
   const { user, updateUser } = useAuth();
-  const { cartItems, cartTotal, clearCart } = useCart();
+  const {
+    cartItems: rawCartItems,
+    cartTotal,
+    clearCart,
+  } = useCart();
+
+  const cartItems = Array.isArray(rawCartItems)
+    ? rawCartItems
+    : [];
 
   const [formData, setFormData] = useState({
     fullName: user?.name || "",
@@ -19,6 +28,12 @@ function CheckoutPage() {
     state: "",
     pincode: "",
     paymentMethod: "Cash on Delivery",
+  });
+
+  const [deliveryLocation, setDeliveryLocation] = useState({
+    latitude: null,
+    longitude: null,
+    accuracy: null,
   });
 
   const [error, setError] = useState("");
@@ -87,6 +102,13 @@ function CheckoutPage() {
       return "Valid 6-digit pincode enter karo.";
     }
 
+    if (
+      !Number.isFinite(deliveryLocation.latitude) ||
+      !Number.isFinite(deliveryLocation.longitude)
+    ) {
+      return "Use My Current Location button se delivery location select karo.";
+    }
+
     if (isWalletSelected && !hasEnoughWalletBalance) {
       return `Wallet balance insufficient hai. Available balance ₹${formatMoney(
         walletBalance
@@ -147,6 +169,15 @@ function CheckoutPage() {
           city: formData.city.trim(),
           state: formData.state.trim(),
           pincode: formData.pincode.trim(),
+          latitude: deliveryLocation.latitude,
+          longitude: deliveryLocation.longitude,
+          locationAccuracy: deliveryLocation.accuracy,
+        },
+
+        deliveryLocation: {
+          latitude: deliveryLocation.latitude,
+          longitude: deliveryLocation.longitude,
+          accuracy: deliveryLocation.accuracy,
         },
 
         paymentMethod: formData.paymentMethod,
@@ -155,6 +186,7 @@ function CheckoutPage() {
       };
 
       const token =
+        localStorage.getItem("chillbite-token") ||
         localStorage.getItem("token") ||
         localStorage.getItem("authToken") ||
         localStorage.getItem("accessToken");
@@ -353,6 +385,29 @@ function CheckoutPage() {
                 style={styles.input}
               />
             </label>
+
+            <div style={styles.mapSection}>
+              <LocationMap
+                value={deliveryLocation}
+                onChange={(location) => {
+                  setDeliveryLocation({
+                    latitude: location.latitude,
+                    longitude: location.longitude,
+                    accuracy: location.accuracy,
+                  });
+
+                  setFormData((currentData) => ({
+                    ...currentData,
+                    address: location.address || currentData.address,
+                    city: location.city || currentData.city,
+                    state: location.state || currentData.state,
+                    pincode: location.pincode || currentData.pincode,
+                  }));
+
+                  setError("");
+                }}
+              />
+            </div>
 
             <div style={styles.paymentHeadingRow}>
               <h2 style={styles.paymentTitle}>Payment Method</h2>
@@ -748,6 +803,10 @@ const styles = {
     background: "#fef2f2",
     color: "#dc2626",
     fontWeight: "700",
+  },
+
+  mapSection: {
+    margin: "8px 0 28px",
   },
 
   paymentHeadingRow: {
