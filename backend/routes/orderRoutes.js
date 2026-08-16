@@ -1,8 +1,12 @@
 import express from "express";
 
 import {
+  assignDeliveryBoy,
   cancelOrder,
   createOrder,
+  getAdminOrders,
+  getDeliveryUsers,
+  getMyDeliveryOrders,
   getMyOrders,
   getOrderById,
   updateOrderStatus,
@@ -15,20 +19,118 @@ import {
 
 const router = express.Router();
 
-router.post("/", protect, createOrder);
+/*
+|--------------------------------------------------------------------------
+| CUSTOMER
+|--------------------------------------------------------------------------
+*/
 
-// Hamesha /:id se pehle
-router.get("/my-orders", protect, getMyOrders);
+/*
+ * Create order
+ */
+router.post(
+  "/",
+  protect,
+  createOrder
+);
 
-router.get("/:id", protect, getOrderById);
+/*
+ * Customer ke own orders
+ *
+ * IMPORTANT:
+ * /:id se hamesha pehle.
+ */
+router.get(
+  "/my-orders",
+  protect,
+  getMyOrders
+);
 
-router.put("/:id/cancel", protect, cancelOrder);
+/*
+|--------------------------------------------------------------------------
+| ADMIN
+|--------------------------------------------------------------------------
+*/
 
+/*
+ * All orders for Admin Dashboard
+ */
+router.get(
+  "/admin/all",
+  protect,
+  adminOnly,
+  getAdminOrders
+);
+
+/*
+ * Delivery-boy users for dropdown
+ */
+router.get(
+  "/admin/delivery-users",
+  protect,
+  adminOnly,
+  getDeliveryUsers
+);
+
+/*
+|--------------------------------------------------------------------------
+| DELIVERY BOY
+|--------------------------------------------------------------------------
+*/
+
+/*
+ * Logged-in delivery boy ke
+ * assigned orders.
+ */
+router.get(
+  "/delivery/my-orders",
+  protect,
+  getMyDeliveryOrders
+);
+
+/*
+|--------------------------------------------------------------------------
+| ORDER ACTIONS
+|--------------------------------------------------------------------------
+*/
+
+/*
+ * Admin assigns delivery boy.
+ */
+router.put(
+  "/:id/assign-delivery",
+  protect,
+  adminOnly,
+  assignDeliveryBoy
+);
+
+/*
+ * Customer cancels own order.
+ */
+router.put(
+  "/:id/cancel",
+  protect,
+  cancelOrder
+);
+
+/*
+ * Admin status change.
+ */
 router.put(
   "/:id/status",
   protect,
   adminOnly,
   updateOrderStatus
+);
+
+/*
+ * IMPORTANT:
+ * Dynamic /:id route always keep near bottom.
+ */
+router.get(
+  "/:id",
+  protect,
+  getOrderById
 );
 
 export default router;

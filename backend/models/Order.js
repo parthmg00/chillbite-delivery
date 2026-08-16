@@ -44,6 +44,12 @@ const orderItemSchema = new mongoose.Schema(
 
 const orderSchema = new mongoose.Schema(
   {
+    /*
+    |--------------------------------------------------------------------------
+    | CUSTOMER
+    |--------------------------------------------------------------------------
+    */
+
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -51,16 +57,100 @@ const orderSchema = new mongoose.Schema(
       index: true,
     },
 
+    /*
+    |--------------------------------------------------------------------------
+    | DELIVERY BOY
+    |--------------------------------------------------------------------------
+    */
+
+    deliveryBoy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+
+    /*
+    |--------------------------------------------------------------------------
+    | LIVE DELIVERY TRACKING
+    |--------------------------------------------------------------------------
+    */
+
+    deliveryTracking: {
+      isActive: {
+        type: Boolean,
+        default: false,
+      },
+
+      latitude: {
+        type: Number,
+        default: null,
+      },
+
+      longitude: {
+        type: Number,
+        default: null,
+      },
+
+      accuracy: {
+        type: Number,
+        default: null,
+      },
+
+      speed: {
+        type: Number,
+        default: null,
+      },
+
+      heading: {
+        type: Number,
+        default: null,
+      },
+
+      startedAt: {
+        type: Date,
+        default: null,
+      },
+
+      lastUpdatedAt: {
+        type: Date,
+        default: null,
+      },
+
+      stoppedAt: {
+        type: Date,
+        default: null,
+      },
+    },
+
+    /*
+    |--------------------------------------------------------------------------
+    | ORDER ITEMS
+    |--------------------------------------------------------------------------
+    */
+
     items: {
       type: [orderItemSchema],
       required: true,
+
       validate: {
         validator(items) {
-          return Array.isArray(items) && items.length > 0;
+          return (
+            Array.isArray(items) &&
+            items.length > 0
+          );
         },
-        message: "Order must contain at least one item.",
+
+        message:
+          "Order must contain at least one item.",
       },
     },
+
+    /*
+    |--------------------------------------------------------------------------
+    | CUSTOMER DELIVERY ADDRESS + GPS
+    |--------------------------------------------------------------------------
+    */
 
     shippingAddress: {
       fullName: {
@@ -98,17 +188,50 @@ const orderSchema = new mongoose.Schema(
         required: true,
         trim: true,
       },
+
+      /*
+       * Customer delivery location
+       */
+      latitude: {
+        type: Number,
+        default: null,
+      },
+
+      longitude: {
+        type: Number,
+        default: null,
+      },
     },
+
+    /*
+    |--------------------------------------------------------------------------
+    | PAYMENT
+    |--------------------------------------------------------------------------
+    */
 
     paymentMethod: {
       type: String,
-      enum: ["Cash on Delivery", "UPI", "Card", "Wallet"],
+
+      enum: [
+        "Cash on Delivery",
+        "UPI",
+        "Card",
+        "Wallet",
+      ],
+
       default: "Cash on Delivery",
     },
 
     paymentStatus: {
       type: String,
-      enum: ["Pending", "Paid", "Refunded", "Failed"],
+
+      enum: [
+        "Pending",
+        "Paid",
+        "Refunded",
+        "Failed",
+      ],
+
       default: "Pending",
     },
 
@@ -122,6 +245,12 @@ const orderSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    /*
+    |--------------------------------------------------------------------------
+    | PRICES
+    |--------------------------------------------------------------------------
+    */
 
     itemsPrice: {
       type: Number,
@@ -148,8 +277,15 @@ const orderSchema = new mongoose.Schema(
       min: 0,
     },
 
+    /*
+    |--------------------------------------------------------------------------
+    | ORDER STATUS
+    |--------------------------------------------------------------------------
+    */
+
     orderStatus: {
       type: String,
+
       enum: [
         "Pending",
         "Confirmed",
@@ -158,9 +294,17 @@ const orderSchema = new mongoose.Schema(
         "Delivered",
         "Cancelled",
       ],
+
       default: "Pending",
+
       index: true,
     },
+
+    /*
+    |--------------------------------------------------------------------------
+    | CANCELLATION
+    |--------------------------------------------------------------------------
+    */
 
     cancellation: {
       reason: {
@@ -176,14 +320,33 @@ const orderSchema = new mongoose.Schema(
 
       cancelledBy: {
         type: String,
-        enum: ["customer", "admin", ""],
+
+        enum: [
+          "customer",
+          "admin",
+          "",
+        ],
+
         default: "",
       },
     },
 
+    /*
+    |--------------------------------------------------------------------------
+    | REFUND
+    |--------------------------------------------------------------------------
+    */
+
     refundStatus: {
       type: String,
-      enum: ["Not Applicable", "Pending", "Completed", "Failed"],
+
+      enum: [
+        "Not Applicable",
+        "Pending",
+        "Completed",
+        "Failed",
+      ],
+
       default: "Not Applicable",
     },
 
@@ -204,10 +367,22 @@ const orderSchema = new mongoose.Schema(
       default: null,
     },
 
+    /*
+    |--------------------------------------------------------------------------
+    | DELIVERY COMPLETION
+    |--------------------------------------------------------------------------
+    */
+
     deliveredAt: {
       type: Date,
       default: null,
     },
+
+    /*
+    |--------------------------------------------------------------------------
+    | SUPPORT
+    |--------------------------------------------------------------------------
+    */
 
     supportTickets: [
       {
@@ -227,6 +402,12 @@ const orderSchema = new mongoose.Schema(
   }
 );
 
+/*
+|--------------------------------------------------------------------------
+| INDEXES
+|--------------------------------------------------------------------------
+*/
+
 orderSchema.index({
   user: 1,
   createdAt: -1,
@@ -237,6 +418,15 @@ orderSchema.index({
   createdAt: -1,
 });
 
-const Order = mongoose.model("Order", orderSchema);
+orderSchema.index({
+  deliveryBoy: 1,
+  orderStatus: 1,
+  createdAt: -1,
+});
+
+const Order = mongoose.model(
+  "Order",
+  orderSchema
+);
 
 export default Order;

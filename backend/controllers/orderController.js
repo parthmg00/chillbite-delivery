@@ -364,30 +364,48 @@ export const createOrder = async (req, res) => {
         })),
 
         shippingAddress: {
-          fullName: String(
-            shippingAddress.fullName
-          ).trim(),
+  fullName: String(
+    shippingAddress.fullName
+  ).trim(),
 
-          phone: String(
-            shippingAddress.phone
-          ).trim(),
+  phone: String(
+    shippingAddress.phone
+  ).trim(),
 
-          address: String(
-            shippingAddress.address
-          ).trim(),
+  address: String(
+    shippingAddress.address
+  ).trim(),
 
-          city: String(
-            shippingAddress.city
-          ).trim(),
+  city: String(
+    shippingAddress.city
+  ).trim(),
 
-          state: String(
-            shippingAddress.state
-          ).trim(),
+  state: String(
+    shippingAddress.state
+  ).trim(),
 
-          pincode: String(
-            shippingAddress.pincode
-          ).trim(),
-        },
+  pincode: String(
+    shippingAddress.pincode
+  ).trim(),
+
+  latitude:
+    shippingAddress.latitude !== undefined &&
+    shippingAddress.latitude !== null &&
+    Number.isFinite(
+      Number(shippingAddress.latitude)
+    )
+      ? Number(shippingAddress.latitude)
+      : null,
+
+  longitude:
+    shippingAddress.longitude !== undefined &&
+    shippingAddress.longitude !== null &&
+    Number.isFinite(
+      Number(shippingAddress.longitude)
+    )
+      ? Number(shippingAddress.longitude)
+      : null,
+},
 
         paymentMethod: normalizedPaymentMethod,
 
@@ -932,6 +950,304 @@ export const updateOrderStatus = async (
       success: false,
       message:
         "Order status could not be updated.",
+    });
+  }
+};
+/*
+|--------------------------------------------------------------------------
+| ADMIN - GET ALL ORDERS
+|--------------------------------------------------------------------------
+| GET /api/orders/admin/all
+|--------------------------------------------------------------------------
+*/
+
+export const getAdminOrders = async (req, res) => {
+  try {
+    const orders = await Order.find({})
+      .populate(
+        "user",
+        "name email phone role"
+      )
+      .populate(
+        "deliveryBoy",
+        "name email phone role"
+      )
+      .sort({
+        createdAt: -1,
+      });
+
+    return res.status(200).json({
+      success: true,
+      count: orders.length,
+      orders,
+    });
+  } catch (error) {
+    console.error(
+      "Get admin orders error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Admin orders could not be loaded.",
+    });
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| ADMIN - GET DELIVERY BOYS
+|--------------------------------------------------------------------------
+| GET /api/orders/admin/delivery-users
+|--------------------------------------------------------------------------
+*/
+
+export const getDeliveryUsers = async (
+  req,
+  res
+) => {
+  try {
+    const deliveryUsers =
+      await User.find({
+        role: "delivery",
+      })
+        .select(
+          "name email phone role createdAt"
+        )
+        .sort({
+          name: 1,
+        });
+
+    return res.status(200).json({
+      success: true,
+      count: deliveryUsers.length,
+      deliveryUsers,
+    });
+  } catch (error) {
+    console.error(
+      "Get delivery users error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Delivery users could not be loaded.",
+    });
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| ADMIN - ASSIGN DELIVERY BOY
+|--------------------------------------------------------------------------
+| PUT /api/orders/:id/assign-delivery
+|--------------------------------------------------------------------------
+*/
+
+export const assignDeliveryBoy = async (
+  req,
+  res
+) => {
+  try {
+    const { id } = req.params;
+
+    const { deliveryBoyId } = req.body;
+
+    if (
+      !mongoose.isValidObjectId(id)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid order ID.",
+      });
+    }
+
+    if (
+      !deliveryBoyId ||
+      !mongoose.isValidObjectId(
+        deliveryBoyId
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Valid delivery boy ID is required.",
+      });
+    }
+
+    /*
+     * Ensure selected user really has
+     * delivery role.
+     */
+    const deliveryBoy =
+      await User.findOne({
+        _id: deliveryBoyId,
+        role: "delivery",
+      }).select(
+        "name email phone role"
+      );
+
+    if (!deliveryBoy) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "Delivery boy account was not found.",
+      });
+    }
+
+    const order =
+      await Order.findById(id);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "Order was not found.",
+      });
+    }
+
+    if (
+      order.orderStatus ===
+      "Cancelled"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Cancelled order cannot be assigned.",
+      });
+    }
+
+    if (
+      order.orderStatus ===
+      "Delivered"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Delivered order cannot be assigned.",
+      });
+    }
+
+    order.deliveryBoy =
+      deliveryBoy._id;
+
+    /*
+     * Pending order assign hone par
+     * confirmed kar do.
+     */
+    if (
+      order.orderStatus ===
+      "Pending"
+    ) {
+      order.orderStatus =
+        "Confirmed";
+    }
+
+    /*
+     * Old tracking coordinates clear.
+     * Useful when admin changes rider.
+     */
+    order.deliveryTracking = {
+      isActive: false,
+      latitude: null,
+      longitude: null,
+      accuracy: null,
+      speed: null,
+      heading: null,
+      startedAt: null,
+      lastUpdatedAt: null,
+      stoppedAt: null,
+    };
+
+    await order.save();
+
+    await order.populate(
+      "deliveryBoy",
+      "name email phone role"
+    );
+
+    await order.populate(
+      "user",
+      "name email phone role"
+    );
+
+    return res.status(200).json({
+      success: true,
+
+      message:
+        "Delivery boy assigned successfully.",
+
+      order,
+    });
+  } catch (error) {
+    console.error(
+      "Assign delivery boy error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Delivery boy could not be assigned.",
+    });
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| DELIVERY BOY - GET MY ASSIGNED ORDERS
+|--------------------------------------------------------------------------
+| GET /api/orders/delivery/my-orders
+|--------------------------------------------------------------------------
+*/
+
+export const getMyDeliveryOrders = async (
+  req,
+  res
+) => {
+  try {
+    if (
+      req.user.role !== "delivery"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Delivery account required.",
+      });
+    }
+
+    const orders = await Order.find({
+      deliveryBoy: req.user._id,
+
+      orderStatus: {
+        $nin: ["Cancelled"],
+      },
+    })
+      .populate(
+        "user",
+        "name email phone"
+      )
+      .sort({
+        createdAt: -1,
+      });
+
+    return res.status(200).json({
+      success: true,
+      count: orders.length,
+      orders,
+    });
+  } catch (error) {
+    console.error(
+      "Get assigned delivery orders error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Assigned delivery orders could not be loaded.",
     });
   }
 };
