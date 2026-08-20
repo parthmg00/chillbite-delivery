@@ -20,14 +20,21 @@ import OrderSuccessPage from "../pages/OrderSuccessPage.jsx";
 import MyOrdersPage from "../pages/MyOrdersPage.jsx";
 import OrderDetailsPage from "../pages/OrderDetailsPage.jsx";
 import WalletPage from "../pages/WalletPage.jsx";
+import DeliveryTracking from "../pages/DeliveryTracking.jsx";
+import CustomerTracking from "../pages/CustomerTracking.jsx";
 
 import { useAuth } from "../context/AuthContext.jsx";
 
+
+// ======================================================
+// PROTECTED ROUTE
+// ======================================================
+
 function ProtectedRoute({ children }) {
   const location = useLocation();
-
   const { isAuthenticated, authLoading } = useAuth();
 
+  // Authentication loading
   if (authLoading) {
     return (
       <main
@@ -41,11 +48,7 @@ function ProtectedRoute({ children }) {
           fontFamily: "Arial, sans-serif",
         }}
       >
-        <div
-          style={{
-            textAlign: "center",
-          }}
-        >
+        <div style={{ textAlign: "center" }}>
           <div
             style={{
               width: "45px",
@@ -86,20 +89,25 @@ function ProtectedRoute({ children }) {
     );
   }
 
+  // User is not logged in
   if (!isAuthenticated) {
     return (
       <Navigate
         to="/login"
         replace
-        state={{
-          from: location,
-        }}
+        state={{ from: location }}
       />
     );
   }
 
+  // User is authenticated
   return children;
 }
+
+
+// ======================================================
+// 404 PAGE
+// ======================================================
 
 function NotFoundPage() {
   const location = useLocation();
@@ -127,6 +135,7 @@ function NotFoundPage() {
           textAlign: "center",
         }}
       >
+        {/* Food Icon */}
         <div
           style={{
             width: "75px",
@@ -143,6 +152,7 @@ function NotFoundPage() {
           🍽️
         </div>
 
+        {/* 404 */}
         <h1
           style={{
             margin: "0 0 12px",
@@ -154,6 +164,7 @@ function NotFoundPage() {
           404
         </h1>
 
+        {/* Heading */}
         <h2
           style={{
             margin: "0 0 10px",
@@ -164,6 +175,7 @@ function NotFoundPage() {
           Page not found
         </h2>
 
+        {/* Message */}
         <p
           style={{
             margin: "0 0 8px",
@@ -174,6 +186,7 @@ function NotFoundPage() {
           Ye page available nahi hai ya URL galat hai.
         </p>
 
+        {/* Current URL */}
         <p
           style={{
             margin: "0 0 24px",
@@ -185,6 +198,7 @@ function NotFoundPage() {
           Requested URL: {location.pathname}
         </p>
 
+        {/* Home Button */}
         <a
           href="/"
           style={{
@@ -206,28 +220,64 @@ function NotFoundPage() {
   );
 }
 
+
+// ======================================================
+// APP ROUTES
+// ======================================================
+
 function AppRoutes() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route element={<MainLayout />}>
-          <Route path="/" element={<HomePage />} />
 
-          <Route path="/products" element={<ProductsPage />} />
+        {/* Main Layout */}
+        <Route element={<MainLayout />}>
+
+          {/* ==========================================
+              PUBLIC ROUTES
+          ========================================== */}
+
+          <Route
+            path="/"
+            element={<HomePage />}
+          />
+
+          <Route
+            path="/products"
+            element={<ProductsPage />}
+          />
 
           <Route
             path="/products/:id"
             element={<ProductDetailsPage />}
           />
 
-          <Route path="/cart" element={<CartPage />} />
+          <Route
+            path="/cart"
+            element={<CartPage />}
+          />
 
-          <Route path="/wishlist" element={<WishlistPage />} />
+          <Route
+            path="/wishlist"
+            element={<WishlistPage />}
+          />
 
-          <Route path="/login" element={<LoginPage />} />
+          <Route
+            path="/login"
+            element={<LoginPage />}
+          />
 
-          <Route path="/register" element={<RegisterPage />} />
+          <Route
+            path="/register"
+            element={<RegisterPage />}
+          />
 
+
+          {/* ==========================================
+              PROTECTED ROUTES
+          ========================================== */}
+
+          {/* Checkout */}
           <Route
             path="/checkout"
             element={
@@ -237,6 +287,7 @@ function AppRoutes() {
             }
           />
 
+          {/* Order Success */}
           <Route
             path="/order-success/:id"
             element={
@@ -246,6 +297,7 @@ function AppRoutes() {
             }
           />
 
+          {/* My Orders */}
           <Route
             path="/orders"
             element={
@@ -255,6 +307,7 @@ function AppRoutes() {
             }
           />
 
+          {/* Order Details */}
           <Route
             path="/orders/:id"
             element={
@@ -264,6 +317,7 @@ function AppRoutes() {
             }
           />
 
+          {/* Wallet */}
           <Route
             path="/wallet"
             element={
@@ -273,11 +327,41 @@ function AppRoutes() {
             }
           />
 
-          <Route path="*" element={<NotFoundPage />} />
+          {/* Delivery Tracking */}
+          <Route
+            path="/delivery/:orderId/track"
+            element={
+              <ProtectedRoute>
+                <DeliveryTracking />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Customer Tracking */}
+          <Route
+            path="/order/:orderId/track"
+            element={
+              <ProtectedRoute>
+                <CustomerTracking />
+              </ProtectedRoute>
+            }
+          />
+
+
+          {/* ==========================================
+              404
+          ========================================== */}
+
+          <Route
+            path="*"
+            element={<NotFoundPage />}
+          />
+
         </Route>
       </Routes>
     </BrowserRouter>
   );
 }
+
 
 export default AppRoutes;

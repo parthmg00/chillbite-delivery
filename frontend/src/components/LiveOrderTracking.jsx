@@ -3,67 +3,320 @@ import {
   useState,
 } from "react";
 
-import axiosInstance from "../api/axiosInstance.js";
-
 import LiveTrackingMap from "./LiveTrackingMap.jsx";
 
-function LiveOrderTracking({ orderId }) {
-  const [trackingData, setTrackingData] =
-    useState(null);
+import {
+  getSocket,
+} from "../api/socket.js";
 
-  const [loading, setLoading] =
-    useState(true);
+function LiveOrderTracking({
+  orderId,
+}) {
+  const [
+    trackingData,
+    setTrackingData,
+  ] = useState(null);
 
-  const [error, setError] =
-    useState("");
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
 
-  const fetchTracking = async () => {
-    try {
-      const response =
-        await axiosInstance.get(
-          `/delivery/orders/${orderId}/tracking`
-        );
+  const [
+    error,
+    setError,
+  ] = useState("");
 
-      setTrackingData(response.data);
-
-      setError("");
-    } catch (requestError) {
-      console.error(
-        "Tracking fetch error:",
-        requestError
-      );
-
-      setError(
-        requestError.response?.data
-          ?.message ||
-          "Live tracking load nahi hui."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [
+    liveLocation,
+    setLiveLocation,
+  ] = useState(null);
 
   useEffect(() => {
     if (!orderId) {
-      return undefined;
+      return;
     }
 
-    fetchTracking();
+    const socket =
+      getSocket();
 
-    const intervalId = setInterval(
-      fetchTracking,
-      5000
+    /*
+     * ------------------------------------------------
+     * CONNECT TO ORDER ROOM
+     * ------------------------------------------------
+     */
+
+    socket.emit(
+      "tracking:join",
+      {
+        orderId,
+      }
     );
 
+    /*
+     * ------------------------------------------------
+     * INITIAL STATE
+     * ------------------------------------------------
+     */
+
+    const handleState = (
+      data
+    ) => {
+      console.log(
+        "📦 Initial tracking:",
+        data
+      );
+
+      setTrackingData(data);
+
+      const tracking =
+        data?.tracking;
+
+      if (
+        tracking?.latitude != null &&
+        tracking?.longitude != null
+      ) {
+        setLiveLocation({
+          latitude:
+            Number(
+              tracking.latitude
+            ),
+
+          longitude:
+            Number(
+              tracking.longitude
+            ),
+        });
+      }
+
+      setLoading(false);
+      setError("");
+    };
+
+    /*
+     * ------------------------------------------------
+     * REAL-TIME LOCATION
+     * ------------------------------------------------
+     */
+
+    const handleLocation = (
+      location
+    ) => {
+      console.log(
+        "🚴 LIVE LOCATION RECEIVED:",
+        location
+      );
+
+      setLiveLocation({
+        latitude:
+          Number(
+            location.latitude
+          ),
+
+        longitude:
+          Number(
+            location.longitude
+          ),
+      });
+
+      setTrackingData(
+        (previous) => {
+          if (!previous) {
+            return previous;
+          }
+
+          return {
+            ...previous,
+
+            tracking: {
+              ...previous.tracking,
+
+              latitude:
+                location.latitude,
+
+              longitude:
+                location.longitude,
+
+              accuracy:
+                location.accuracy,
+
+              speed:
+                location.speed,
+
+              heading:
+                location.heading,
+
+              lastUpdatedAt:
+                location.lastUpdatedAt,
+            },
+          };
+        }
+      );
+    };
+
+    /*
+     * ------------------------------------------------
+     * TRACKING STARTED
+     * ------------------------------------------------
+     */
+
+    const handleStarted = (
+      data
+    ) => {
+      console.log(
+        "🚴 Delivery started:",
+        data
+      );
+
+      setTrackingData(
+        (previous) => ({
+          ...previous,
+
+          orderStatus:
+            data.orderStatus,
+
+          tracking:
+            data.tracking,
+        })
+      );
+    };
+
+    /*
+     * ------------------------------------------------
+     * TRACKING STOPPED
+     * ------------------------------------------------
+     */
+
+    const handleStopped = (
+      data
+    ) => {
+      setTrackingData(
+        (previous) => ({
+          ...previous,
+
+          tracking:
+            data.tracking,
+        })
+      );
+    };
+
+    /*
+     * ------------------------------------------------
+     * DELIVERED
+     * ------------------------------------------------
+     */
+
+    const handleDelivered = (
+      data
+    ) => {
+      setTrackingData(
+        (previous) => ({
+          ...previous,
+
+          orderStatus:
+            "Delivered",
+
+          tracking:
+            data.tracking,
+        })
+      );
+    };
+
+    /*
+     * ------------------------------------------------
+     * ERRORS
+     * ------------------------------------------------
+     */
+
+    const handleError = (
+      data
+    ) => {
+      console.error(
+        "Tracking socket error:",
+        data
+      );
+
+      setError(
+        data?.message ||
+          "Live tracking error."
+      );
+
+      setLoading(false);
+    };
+
+    socket.on(
+      "tracking:state",
+      handleState
+    );
+
+    socket.on(
+      "delivery:location",
+      handleLocation
+    );
+
+    socket.on(
+      "delivery:started",
+      handleStarted
+    );
+
+    socket.on(
+      "delivery:stopped",
+      handleStopped
+    );
+
+    socket.on(
+      "delivery:delivered",
+      handleDelivered
+    );
+
+    socket.on(
+      "tracking:error",
+      handleError
+    );
+
+    /*
+     * ------------------------------------------------
+     * CLEANUP
+     * ------------------------------------------------
+     */
+
     return () => {
-      clearInterval(intervalId);
+      socket.off(
+        "tracking:state",
+        handleState
+      );
+
+      socket.off(
+        "delivery:location",
+        handleLocation
+      );
+
+      socket.off(
+        "delivery:started",
+        handleStarted
+      );
+
+      socket.off(
+        "delivery:stopped",
+        handleStopped
+      );
+
+      socket.off(
+        "delivery:delivered",
+        handleDelivered
+      );
+
+      socket.off(
+        "tracking:error",
+        handleError
+      );
     };
   }, [orderId]);
 
   if (loading) {
     return (
       <div style={styles.box}>
-        Loading live tracking...
+        Connecting to live tracking...
       </div>
     );
   }
@@ -85,58 +338,114 @@ function LiveOrderTracking({ orderId }) {
   const shipping =
     trackingData?.shippingAddress;
 
+  /*
+   * IMPORTANT:
+   *
+   * liveLocation is coming directly
+   * from Socket.IO.
+   */
+
   const deliveryLocation =
-    tracking?.latitude &&
-    tracking?.longitude
+    liveLocation ||
+    (
+      tracking?.latitude != null &&
+      tracking?.longitude != null
+    )
       ? {
-          latitude: tracking.latitude,
-          longitude: tracking.longitude,
+          latitude:
+            Number(
+              liveLocation?.latitude ??
+                tracking?.latitude
+            ),
+
+          longitude:
+            Number(
+              liveLocation?.longitude ??
+                tracking?.longitude
+            ),
         }
       : null;
 
   const customerLocation =
-    shipping?.latitude &&
-    shipping?.longitude
+    shipping?.latitude != null &&
+    shipping?.longitude != null
       ? {
-          latitude: shipping.latitude,
-          longitude: shipping.longitude,
+          latitude:
+            Number(
+              shipping.latitude
+            ),
+
+          longitude:
+            Number(
+              shipping.longitude
+            ),
         }
       : null;
 
+  const isActive =
+    Boolean(
+      tracking?.isActive
+    );
+
   return (
-    <section style={styles.card}>
+    <section
+      style={styles.card}
+    >
       <div style={styles.header}>
         <div>
-          <p style={styles.eyebrow}>
+          <p
+            style={
+              styles.eyebrow
+            }
+          >
             LIVE DELIVERY
           </p>
 
-          <h2 style={styles.title}>
+          <h2
+            style={
+              styles.title
+            }
+          >
             Track Your Order
           </h2>
         </div>
 
-        <span style={styles.status}>
+        <span
+          style={
+            styles.status
+          }
+        >
           {trackingData?.orderStatus}
         </span>
       </div>
 
       {deliveryBoy && (
-        <div style={styles.partner}>
+        <div
+          style={
+            styles.partner
+          }
+        >
           <div>
             <strong>
-              🛵 {deliveryBoy.name}
+              🛵{" "}
+              {deliveryBoy.name}
             </strong>
 
-            <p style={styles.smallText}>
+            <p
+              style={
+                styles.smallText
+              }
+            >
               Your Delivery Partner
             </p>
           </div>
 
           {deliveryBoy.phone && (
             <a
-              href={`tel:${deliveryBoy.phone}`}
-              style={styles.callButton}
+              href={tel:${deliveryBoy.phone}}
+              style={
+                styles.callButton
+              }
             >
               Call
             </a>
@@ -144,7 +453,7 @@ function LiveOrderTracking({ orderId }) {
         </div>
       )}
 
-      {tracking?.isActive &&
+      {isActive &&
       deliveryLocation ? (
         <>
           <LiveTrackingMap
@@ -156,32 +465,54 @@ function LiveOrderTracking({ orderId }) {
             }
           />
 
-          <div style={styles.liveRow}>
-            <span style={styles.liveDot} />
+          <div
+            style={
+              styles.liveRow
+            }
+          >
+            <span
+              style={
+                styles.liveDot
+              }
+            />
 
-            Live location active
+            LIVE • Rider location updating
           </div>
 
-          <p style={styles.smallText}>
+          <p
+            style={
+              styles.smallText
+            }
+          >
             Last updated:{" "}
-            {tracking.lastUpdatedAt
+            {tracking?.lastUpdatedAt
               ? new Date(
                   tracking.lastUpdatedAt
                 ).toLocaleTimeString()
-              : "Waiting..."}
+              : "Just now"}
           </p>
         </>
       ) : (
-        <div style={styles.waitingBox}>
+        <div
+          style={
+            styles.waitingBox
+          }
+        >
           <strong>
-            Delivery tracking abhi start
-            nahi hui.
+            Delivery tracking abhi
+            active nahi hai.
           </strong>
 
-          <p style={styles.smallText}>
-            Delivery partner jab order lekar
-            niklega tab live location yahan
-            automatically dikhne lagegi.
+          <p
+            style={
+              styles.smallText
+            }
+          >
+            Delivery partner jab
+            delivery start karega,
+            live location yahan
+            automatically appear
+            hogi.
           </p>
         </div>
       )}
@@ -201,7 +532,8 @@ const styles = {
 
   header: {
     display: "flex",
-    justifyContent: "space-between",
+    justifyContent:
+      "space-between",
     alignItems: "center",
     gap: "15px",
     marginBottom: "20px",
@@ -231,7 +563,8 @@ const styles = {
 
   partner: {
     display: "flex",
-    justifyContent: "space-between",
+    justifyContent:
+      "space-between",
     alignItems: "center",
     padding: "14px",
     marginBottom: "18px",
@@ -262,6 +595,8 @@ const styles = {
     height: "10px",
     background: "#10b981",
     borderRadius: "50%",
+    boxShadow:
+      "0 0 0 5px rgba(16,185,129,0.12)",
   },
 
   smallText: {

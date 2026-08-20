@@ -5,6 +5,9 @@ import {
 } from "react";
 
 import axiosInstance from "../api/axiosInstance.js";
+import {
+  getSocket,
+} from "../api/socket.js";
 
 function DeliveryDashboard() {
   const [orders, setOrders] =
@@ -19,12 +22,22 @@ function DeliveryDashboard() {
   const [error, setError] =
     useState("");
 
-  const [trackingOrderId, setTrackingOrderId] =
-    useState("");
+  const [
+    trackingOrderId,
+    setTrackingOrderId,
+  ] = useState("");
 
-  const watchIdRef = useRef(null);
+  const watchIdRef =
+    useRef(null);
 
-  const lastSentAtRef = useRef(0);
+  const socketRef =
+    useRef(null);
+
+  /*
+   * ----------------------------------------------------
+   * LOAD ASSIGNED ORDERS
+   * ----------------------------------------------------
+   */
 
   const fetchOrders = async () => {
     try {
@@ -37,6 +50,11 @@ function DeliveryDashboard() {
         response.data?.orders || []
       );
     } catch (requestError) {
+      console.error(
+        "Delivery orders error:",
+        requestError
+      );
+
       setError(
         requestError.response?.data
           ?.message ||
@@ -47,8 +65,18 @@ function DeliveryDashboard() {
     }
   };
 
+  /*
+   * ----------------------------------------------------
+   * INITIAL LOAD
+   * ----------------------------------------------------
+   */
+
   useEffect(() => {
     fetchOrders();
+
+    const socket = getSocket();
+
+    socketRef.current = socket;
 
     return () => {
       if (
@@ -57,190 +85,260 @@ function DeliveryDashboard() {
         navigator.geolocation.clearWatch(
           watchIdRef.current
         );
+
+        watchIdRef.current = null;
       }
     };
   }, []);
 
-  const startTracking = async (orderId) => {
+  /*
+   * ----------------------------------------------------
+   * START LIVE LOCATION
+   * ----------------------------------------------------
+   */
+
+  const startTracking = (
+    orderId
+  ) => {
     setError("");
     setMessage("");
 
-    if (!navigator.geolocation) {
+    if (
+      !navigator.geolocation
+    ) {
       setError(
         "Browser location support nahi karta."
       );
+
       return;
     }
 
-    try {
-      await axiosInstance.put(
-        `/delivery/orders/${orderId}/start`
+    const socket =
+      socketRef.current ||
+      getSocket();
+
+    socketRef.current = socket;
+
+    /*
+     * Existing GPS watcher stop.
+     */
+
+    if (
+      watchIdRef.current !== null
+    ) {
+      navigator.geolocation.clearWatch(
+        watchIdRef.current
       );
 
-      setTrackingOrderId(orderId);
+      watchIdRef.current = null;
+    }
 
-      /*
-       * Existing watch ho to clear.
-       */
-      if (
-        watchIdRef.current !== null
-      ) {
-        navigator.geolocation.clearWatch(
-          watchIdRef.current
-        );
+    /*
+     * Tell backend:
+     *
+     * Delivery start.
+     */
+
+    socket.emit(
+      "delivery:start",
+      {
+        orderId,
       }
+    );
 
-      watchIdRef.current =
-        navigator.geolocation.watchPosition(
-          async (position) => {
-            /*
-             * Backend ko max every 5 sec
-             * update bhejenge.
-             */
-            const now = Date.now();
+    setTrackingOrderId(
+      orderId
+    );
 
-            if (
-              now -
-                lastSentAtRef.current <
-              5000
-            ) {
-              return;
-            }
+    setMessage(
+      "Starting live location..."
+    );
 
-            lastSentAtRef.current = now;
+    /*
+     * Browser GPS watcher.
+     */
 
-            try {
-              await axiosInstance.put(
-                `/delivery/orders/${orderId}/location`,
-                {
-                  latitude:
-                    position.coords.latitude,
+    watchIdRef.current =
+      navigator.geolocation.watchPosition(
+        (position) => {
+          const location = {
+            orderId,
 
-                  longitude:
-                    position.coords.longitude,
+            latitude:
+              position.coords
+                .latitude,
 
-                  accuracy:
-                    position.coords.accuracy,
+            longitude:
+              position.coords
+                .longitude,
 
-                  speed:
-                    position.coords.speed,
+            accuracy:
+              position.coords
+                .accuracy,
 
-                  heading:
-                    position.coords.heading,
-                }
-              );
+            speed:
+              position.coords
+                .speed,
 
-              setMessage(
-                "Live location sharing active."
-              );
-            } catch (requestError) {
-              console.error(
-                "Location update error:",
-                requestError
-              );
-            }
-          },
+            heading:
+              position.coords
+                .heading,
+          };
 
-          (locationError) => {
-            console.error(
-              "Geolocation error:",
-              locationError
+          /*
+           * REAL-TIME SOCKET EVENT
+           */
+
+          socket.emit(
+            "delivery:location",
+            location
+          );
+
+          console.log(
+            "📍 GPS sent:",
+            location
+          );
+
+          setMessage(
+            `Live location active • ${location.latitude.toFixed(
+              6
+            )}, ${location.longitude.toFixed(
+              6
+            )}`
+          );
+        },
+
+        (locationError) => {
+          console.error(
+            "Geolocation error:",
+            locationError
+          );
+
+          if (
+            locationError.code === 1
+          ) {
+            setError(
+              "Location permission denied. Browser settings me Location Allow karo."
             );
-
-            if (
-              locationError.code === 1
-            ) {
-              setError(
-                "Location permission denied. Browser settings me Allow karo."
-              );
-            } else {
-              setError(
-                "Current location read nahi ho rahi."
-              );
-            }
-          },
-
-          {
-            enableHighAccuracy: true,
-            timeout: 15000,
-            maximumAge: 3000,
+          } else if (
+            locationError.code === 2
+          ) {
+            setError(
+              "Current location read nahi ho rahi."
+            );
+          } else if (
+            locationError.code === 3
+          ) {
+            setError(
+              "Location request timeout ho gayi."
+            );
+          } else {
+            setError(
+              "GPS location error."
+            );
           }
-        );
+        },
 
-      await fetchOrders();
-    } catch (requestError) {
-      setError(
-        requestError.response?.data
-          ?.message ||
-          "Tracking start nahi hui."
+        {
+          /*
+           * Mobile GPS accuracy better.
+           */
+
+          enableHighAccuracy: true,
+
+          /*
+           * GPS maximum wait.
+           */
+
+          timeout: 15000,
+
+          /*
+           * Old location maximum age.
+           */
+
+          maximumAge: 2000,
+        }
       );
-    }
+
+    fetchOrders();
   };
 
-  const stopTracking = async (orderId) => {
-    try {
-      if (
-        watchIdRef.current !== null
-      ) {
-        navigator.geolocation.clearWatch(
-          watchIdRef.current
-        );
+  /*
+   * ----------------------------------------------------
+   * STOP LIVE LOCATION
+   * ----------------------------------------------------
+   */
 
-        watchIdRef.current = null;
-      }
-
-      await axiosInstance.put(
-        `/delivery/orders/${orderId}/stop`
-      );
-
-      setTrackingOrderId("");
-
-      setMessage(
-        "Live location stopped."
-      );
-
-      fetchOrders();
-    } catch (requestError) {
-      setError(
-        requestError.response?.data
-          ?.message ||
-          "Tracking stop nahi hui."
-      );
-    }
-  };
-
-  const markDelivered = async (
+  const stopTracking = (
     orderId
   ) => {
-    try {
-      if (
-        watchIdRef.current !== null
-      ) {
-        navigator.geolocation.clearWatch(
-          watchIdRef.current
-        );
+    const socket =
+      socketRef.current ||
+      getSocket();
 
-        watchIdRef.current = null;
-      }
-
-      await axiosInstance.put(
-        `/delivery/orders/${orderId}/delivered`
+    if (
+      watchIdRef.current !== null
+    ) {
+      navigator.geolocation.clearWatch(
+        watchIdRef.current
       );
 
-      setTrackingOrderId("");
-
-      setMessage(
-        "Order delivered successfully."
-      );
-
-      fetchOrders();
-    } catch (requestError) {
-      setError(
-        requestError.response?.data
-          ?.message ||
-          "Delivered mark nahi hua."
-      );
+      watchIdRef.current = null;
     }
+
+    socket.emit(
+      "delivery:stop",
+      {
+        orderId,
+      }
+    );
+
+    setTrackingOrderId("");
+
+    setMessage(
+      "Live location stopped."
+    );
+
+    fetchOrders();
+  };
+
+  /*
+   * ----------------------------------------------------
+   * MARK DELIVERED
+   * ----------------------------------------------------
+   */
+
+  const markDelivered = (
+    orderId
+  ) => {
+    const socket =
+      socketRef.current ||
+      getSocket();
+
+    if (
+      watchIdRef.current !== null
+    ) {
+      navigator.geolocation.clearWatch(
+        watchIdRef.current
+      );
+
+      watchIdRef.current = null;
+    }
+
+    socket.emit(
+      "delivery:delivered",
+      {
+        orderId,
+      }
+    );
+
+    setTrackingOrderId("");
+
+    setMessage(
+      "Order delivered successfully."
+    );
+
+    fetchOrders();
   };
 
   if (loading) {
@@ -263,8 +361,8 @@ function DeliveryDashboard() {
         </h1>
 
         <p style={styles.subtitle}>
-          Assigned order select karke live
-          location share karo.
+          Assigned order select karke
+          real-time location share karo.
         </p>
 
         {error && (
@@ -281,121 +379,183 @@ function DeliveryDashboard() {
 
         {orders.length === 0 ? (
           <div style={styles.empty}>
-            Abhi koi order assigned nahi hai.
+            Abhi koi order assigned nahi
+            hai.
           </div>
         ) : (
-          orders.map((order) => (
-            <article
-              key={order._id}
-              style={styles.card}
-            >
-              <div style={styles.row}>
-                <div>
+          orders.map((order) => {
+            const isTracking =
+              trackingOrderId ===
+              order._id;
+
+            return (
+              <article
+                key={order._id}
+                style={styles.card}
+              >
+                <div
+                  style={styles.row}
+                >
+                  <div>
+                    <strong>
+                      Order #
+                      {order._id.slice(
+                        -8
+                      )}
+                    </strong>
+
+                    <p
+                      style={
+                        styles.small
+                      }
+                    >
+                      {order.orderStatus}
+                    </p>
+                  </div>
+
                   <strong>
-                    Order #
-                    {order._id.slice(-8)}
+                    ₹
+                    {order.totalPrice}
+                  </strong>
+                </div>
+
+                <div
+                  style={
+                    styles.addressBox
+                  }
+                >
+                  <strong>
+                    Deliver To
                   </strong>
 
-                  <p style={styles.small}>
-                    {order.orderStatus}
+                  <p
+                    style={
+                      styles.small
+                    }
+                  >
+                    {
+                      order
+                        .shippingAddress
+                        ?.fullName
+                    }
+                  </p>
+
+                  <p
+                    style={
+                      styles.small
+                    }
+                  >
+                    {
+                      order
+                        .shippingAddress
+                        ?.address
+                    }
+                    ,{" "}
+                    {
+                      order
+                        .shippingAddress
+                        ?.city
+                    }
+                    ,{" "}
+                    {
+                      order
+                        .shippingAddress
+                        ?.state
+                    }{" "}
+                    {
+                      order
+                        .shippingAddress
+                        ?.pincode
+                    }
+                  </p>
+
+                  <p
+                    style={
+                      styles.small
+                    }
+                  >
+                    Phone:{" "}
+                    {
+                      order
+                        .shippingAddress
+                        ?.phone
+                    }
                   </p>
                 </div>
 
-                <strong>
-                  ₹{order.totalPrice}
-                </strong>
-              </div>
-
-              <div style={styles.addressBox}>
-                <strong>
-                  Deliver To
-                </strong>
-
-                <p style={styles.small}>
-                  {
-                    order.shippingAddress
-                      ?.fullName
-                  }
-                </p>
-
-                <p style={styles.small}>
-                  {
-                    order.shippingAddress
-                      ?.address
-                  }
-                  ,{" "}
-                  {
-                    order.shippingAddress
-                      ?.city
-                  }
-                  ,{" "}
-                  {
-                    order.shippingAddress
-                      ?.state
-                  }{" "}
-                  {
-                    order.shippingAddress
-                      ?.pincode
-                  }
-                </p>
-
-                <p style={styles.small}>
-                  Phone:{" "}
-                  {
-                    order.shippingAddress
-                      ?.phone
-                  }
-                </p>
-              </div>
-
-              <div style={styles.buttons}>
-                {trackingOrderId !==
-                order._id ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      startTracking(
-                        order._id
-                      )
-                    }
-                    style={
-                      styles.startButton
-                    }
-                  >
-                    📍 Start Live Location
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      stopTracking(
-                        order._id
-                      )
-                    }
-                    style={
-                      styles.stopButton
-                    }
-                  >
-                    Stop Location
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    markDelivered(
-                      order._id
-                    )
-                  }
+                <div
                   style={
-                    styles.deliveredButton
+                    styles.locationStatus
                   }
                 >
-                  ✓ Delivered
-                </button>
-              </div>
-            </article>
-          ))
+                  <span
+                    style={{
+                      ...styles.statusDot,
+
+                      background:
+                        isTracking
+                          ? "#10b981"
+                          : "#9ca3af",
+                    }}
+                  />
+
+                  {isTracking
+                    ? "GPS Live • Sharing location"
+                    : "Location not sharing"}
+                </div>
+
+                <div
+                  style={
+                    styles.buttons
+                  }
+                >
+                  {!isTracking ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        startTracking(
+                          order._id
+                        )
+                      }
+                      style={
+                        styles.startButton
+                      }
+                    >
+                      📍 Start Live Location
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        stopTracking(
+                          order._id
+                        )
+                      }
+                      style={
+                        styles.stopButton
+                      }
+                    >
+                      Stop Location
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      markDelivered(
+                        order._id
+                      )
+                    }
+                    style={
+                      styles.deliveredButton
+                    }
+                  >
+                    ✓ Delivered
+                  </button>
+                </div>
+              </article>
+            );
+          })
         )}
       </div>
     </main>
@@ -407,7 +567,8 @@ const styles = {
     minHeight: "100vh",
     padding: "40px 20px",
     background: "#fff8f5",
-    fontFamily: "Arial, sans-serif",
+    fontFamily:
+      "Arial, sans-serif",
   },
 
   container: {
@@ -441,7 +602,8 @@ const styles = {
 
   row: {
     display: "flex",
-    justifyContent: "space-between",
+    justifyContent:
+      "space-between",
   },
 
   addressBox: {
@@ -455,6 +617,26 @@ const styles = {
     margin: "5px 0",
     color: "#6b7280",
     lineHeight: "1.5",
+  },
+
+  locationStatus: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    marginBottom: "15px",
+    padding: "10px 12px",
+    background: "#f9fafb",
+    borderRadius: "10px",
+    color: "#374151",
+    fontWeight: "700",
+    fontSize: "13px",
+  },
+
+  statusDot: {
+    width: "10px",
+    height: "10px",
+    borderRadius: "50%",
+    display: "inline-block",
   },
 
   buttons: {
@@ -516,4 +698,4 @@ const styles = {
   },
 };
 
-export default DeliveryDashboard;
+export default DeliveryDashboard
