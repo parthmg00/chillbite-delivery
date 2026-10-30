@@ -58,6 +58,7 @@ function CheckoutPage() {
   const totalPrice = itemsPrice + deliveryCharge;
 
   const isWalletSelected = formData.paymentMethod === "Wallet";
+  const isRazorpaySelected = formData.paymentMethod === "Razorpay";
   const hasEnoughWalletBalance = walletBalance >= totalPrice;
 
   const formatMoney = (amount) =>
@@ -65,6 +66,12 @@ function CheckoutPage() {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
+
+  const getToken = () =>
+    localStorage.getItem("chillbite-token") ||
+    localStorage.getItem("token") ||
+    localStorage.getItem("authToken") ||
+    localStorage.getItem("accessToken");
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -116,6 +123,85 @@ function CheckoutPage() {
     }
 
     return "";
+  };
+
+  // Razorpay checkout popup kholta hai aur payment verify karta hai
+  const startRazorpayCheckout = (orderId, amount) => {
+    return new Promise((resolve, reject) => {
+      (async () => {
+        try {
+          const token = getToken();
+
+          const { data } = await axiosInstance.post(
+            "/payment/create-order",
+            { amount, orderId },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+
+          if (!data?.success) {
+            throw new Error("Razorpay order create nahi hua.");
+          }
+
+          const options = {
+            key: data.keyId,
+            amount: data.amount,
+            currency: data.currency,
+            name: "ChillBite",
+            description: "Order Payment",
+            order_id: data.razorpayOrderId,
+
+            handler: async function (response) {
+              try {
+                const verifyRes = await axiosInstance.post(
+                  "/payment/verify",
+                  {
+                    razorpay_order_id: response.razorpay_order_id,
+                    razorpay_payment_id: response.razorpay_payment_id,
+                    razorpay_signature: response.razorpay_signature,
+                    orderId,
+                  },
+                  { headers: { Authorization: `Bearer ${token}` } }
+                );
+
+                if (verifyRes.data?.success) {
+                  resolve(true);
+                } else {
+                  reject(new Error("Payment verify nahi hui."));
+                }
+              } catch (verifyError) {
+                reject(verifyError);
+              }
+            },
+
+            modal: {
+              ondismiss: function () {
+                reject(new Error("Payment cancel kar diya gaya."));
+              },
+            },
+
+            prefill: {
+              name: formData.fullName,
+              contact: formData.phone,
+            },
+
+            theme: {
+              color: "#ff4d4f",
+            },
+          };
+
+          if (!window.Razorpay) {
+            throw new Error(
+              "Razorpay script load nahi hui. Page refresh karke try karo."
+            );
+          }
+
+          const razorpayInstance = new window.Razorpay(options);
+          razorpayInstance.open();
+        } catch (setupError) {
+          reject(setupError);
+        }
+      })();
+    });
   };
 
   const handlePlaceOrder = async (event) => {
@@ -185,11 +271,7 @@ function CheckoutPage() {
         discountAmount: 0,
       };
 
-      const token =
-        localStorage.getItem("chillbite-token") ||
-        localStorage.getItem("token") ||
-        localStorage.getItem("authToken") ||
-        localStorage.getItem("accessToken");
+      const token = getToken();
 
       if (!token) {
         throw new Error(
@@ -218,6 +300,11 @@ function CheckoutPage() {
 
       if (!orderId) {
         throw new Error("Order ID response me nahi mila.");
+      }
+
+      // Razorpay selected hai to payment popup kholo
+      if (isRazorpaySelected) {
+        await startRazorpayCheckout(orderId, totalPrice);
       }
 
       if (formData.paymentMethod === "Wallet") {
@@ -543,6 +630,33 @@ function CheckoutPage() {
               </span>
             </label>
 
+            <label
+              style={{
+                ...styles.paymentOption,
+                ...(isRazorpaySelected
+                  ? styles.selectedPaymentOption
+                  : {}),
+              }}
+            >
+              <input
+                type="radio"
+                name="paymentMethod"
+                value="Razorpay"
+                checked={isRazorpaySelected}
+                onChange={handleChange}
+              />
+
+              <span style={styles.paymentIcon}>💳</span>
+
+              <span style={styles.paymentContent}>
+                <strong>Pay Online (Razorpay)</strong>
+
+                <small style={styles.paymentDescription}>
+                  Card, UPI, Netbanking se secure payment karo.
+                </small>
+              </span>
+            </label>
+
             <button
               type="submit"
               disabled={
@@ -564,10 +678,14 @@ function CheckoutPage() {
               }}
             >
               {placingOrder
-                ? "Placing Order..."
+                ? isRazorpaySelected
+                  ? "Opening Payment..."
+                  : "Placing Order..."
                 : isWalletSelected
                   ? `Pay ₹${formatMoney(totalPrice)} with Wallet`
-                  : `Place Order • ₹${formatMoney(totalPrice)}`}
+                  : isRazorpaySelected
+                    ? `Pay ₹${formatMoney(totalPrice)} Online`
+                    : `Place Order • ₹${formatMoney(totalPrice)}`}
             </button>
 
             <p style={styles.secureCheckoutText}>

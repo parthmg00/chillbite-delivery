@@ -17,7 +17,7 @@ function WalletPage() {
   const [selectedAmount, setSelectedAmount] = useState(500);
   const [customAmount, setCustomAmount] = useState("");
 
-  const [paymentMethod, setPaymentMethod] = useState("gpay");
+  const [paymentMethod, setPaymentMethod] = useState("razorpay");
   const [upiId, setUpiId] = useState("");
   const [cardLastFour, setCardLastFour] = useState("");
 
@@ -63,6 +63,12 @@ function WalletPage() {
       minute: "2-digit",
     });
   };
+
+  const getToken = () =>
+    localStorage.getItem("chillbite-token") ||
+    localStorage.getItem("token") ||
+    localStorage.getItem("authToken") ||
+    localStorage.getItem("accessToken");
 
   const loadWallet = useCallback(async () => {
     try {
@@ -164,7 +170,11 @@ function WalletPage() {
       return "Maximum ₹10,000 ek transaction me add kar sakte ho.";
     }
 
-    if (!["gpay", "phonepe", "upi", "card"].includes(paymentMethod)) {
+    if (
+      !["razorpay", "gpay", "phonepe", "upi", "card"].includes(
+        paymentMethod
+      )
+    ) {
       return "Payment method select karo.";
     }
 
@@ -185,6 +195,85 @@ function WalletPage() {
     return "";
   };
 
+  // Razorpay checkout popup kholta hai wallet top-up ke liye
+  const startRazorpayTopUp = (amount) => {
+    return new Promise((resolve, reject) => {
+      (async () => {
+        try {
+          const token = getToken();
+
+          const { data } = await axiosInstance.post(
+            "/payment/create-order",
+            { amount, receipt: `wallet_${Date.now()}` },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+
+          if (!data?.success) {
+            throw new Error("Payment order create nahi hua.");
+          }
+
+          const options = {
+            key: data.keyId,
+            amount: data.amount,
+            currency: data.currency,
+            name: "ChillBite",
+            description: "Wallet Top-up",
+            order_id: data.razorpayOrderId,
+
+            handler: async function (response) {
+              try {
+                const verifyRes = await axiosInstance.post(
+                  "/payment/verify-wallet",
+                  {
+                    razorpay_order_id: response.razorpay_order_id,
+                    razorpay_payment_id: response.razorpay_payment_id,
+                    razorpay_signature: response.razorpay_signature,
+                    amount,
+                  },
+                  { headers: { Authorization: `Bearer ${token}` } }
+                );
+
+                if (verifyRes.data?.success) {
+                  resolve(verifyRes.data);
+                } else {
+                  reject(new Error("Payment verify nahi hui."));
+                }
+              } catch (verifyError) {
+                reject(verifyError);
+              }
+            },
+
+            modal: {
+              ondismiss: function () {
+                reject(new Error("Payment cancel kar diya gaya."));
+              },
+            },
+
+            prefill: {
+              name: user?.name || "",
+              contact: user?.phone || "",
+            },
+
+            theme: {
+              color: "#ff4d4f",
+            },
+          };
+
+          if (!window.Razorpay) {
+            throw new Error(
+              "Razorpay script load nahi hui. Page refresh karke try karo."
+            );
+          }
+
+          const razorpayInstance = new window.Razorpay(options);
+          razorpayInstance.open();
+        } catch (setupError) {
+          reject(setupError);
+        }
+      })();
+    });
+  };
+
   const handleAddMoney = async () => {
     setError("");
     setSuccessMessage("");
@@ -199,6 +288,44 @@ function WalletPage() {
     try {
       setAddingMoney(true);
 
+      // Razorpay se real payment
+      if (paymentMethod === "razorpay") {
+        const result = await startRazorpayTopUp(finalAddAmount);
+
+        const updatedBalance = Number(
+          result?.walletBalance ?? result?.balance ?? walletBalance + finalAddAmount
+        );
+
+        setWalletBalance(updatedBalance);
+
+        if (result?.transaction) {
+          setTransactions((currentTransactions) => [
+            result.transaction,
+            ...currentTransactions,
+          ]);
+        } else {
+          await loadWallet();
+        }
+
+        if (typeof updateUser === "function") {
+          updateUser({
+            walletBalance: updatedBalance,
+          });
+        }
+
+        setSelectedAmount(500);
+        setCustomAmount("");
+
+        setSuccessMessage(
+          `₹${finalAddAmount.toFixed(
+            2
+          )} successfully ChillBite Wallet me add hua.`
+        );
+
+        return;
+      }
+
+      // Purana demo flow (GPay/PhonePe/UPI/Card)
       const requestData = {
         amount: finalAddAmount,
         paymentMethod,
@@ -370,6 +497,13 @@ function WalletPage() {
 
             <div style={styles.paymentGrid}>
               <PaymentOption
+                value="razorpay"
+                label="Pay Online (Razorpay)"
+                selected={paymentMethod}
+                onChange={setPaymentMethod}
+              />
+
+              <PaymentOption
                 value="gpay"
                 label="Google Pay"
                 selected={paymentMethod}
@@ -444,12 +578,16 @@ function WalletPage() {
               }}
             >
               {addingMoney
-                ? "Adding Money..."
+                ? paymentMethod === "razorpay"
+                  ? "Opening Payment..."
+                  : "Adding Money..."
                 : `Add ₹${formatAmount(finalAddAmount)}`}
             </button>
 
             <p style={styles.demoText}>
-              Demo payment hai. Real payment gateway connected nahi hai.
+              {paymentMethod === "razorpay"
+                ? "🔒 Secure payment via Razorpay."
+                : "Demo payment hai. Real payment gateway connected nahi hai."}
             </p>
           </section>
         </div>

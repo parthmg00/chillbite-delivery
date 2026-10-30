@@ -7,6 +7,7 @@ import productRoutes from "./routes/productRoutes.js";
 import walletRoutes from "./routes/walletRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
 import deliveryTrackingRoutes from "./routes/deliveryTrackingRoutes.js";
+import paymentRoutes from "./routes/paymentRoutes.js";
 
 const app = express();
 
@@ -116,6 +117,15 @@ app.use(
   "/api/delivery",
   deliveryTrackingRoutes
 );
+
+/*
+ * Razorpay payment routes
+ *
+ * POST /api/payment/create-order
+ * POST /api/payment/verify
+ * POST /api/payment/verify-wallet
+ */
+app.use("/api/payment", paymentRoutes);
 
 /*
 |--------------------------------------------------------------------------

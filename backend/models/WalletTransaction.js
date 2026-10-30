@@ -60,6 +60,7 @@ const walletTransactionSchema =
           "card",
           "wallet",
           "refund",
+          "razorpay",
         ],
         default: "",
       },
